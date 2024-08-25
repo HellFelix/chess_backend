@@ -1,10 +1,6 @@
 pub mod fen;
 pub mod squares;
 
-use core::panic;
-
-use log::error;
-
 use crate::{piece_map_bitboards, squares_to_bitboard};
 
 /// Enum representation of the colour of pieces.
@@ -52,7 +48,6 @@ impl Piece {
             Self::Knight(Colour::White) => Some("♞"),
             Self::Rook(Colour::Black) => Some("♖"),
             Self::Rook(Colour::White) => Some("♜"),
-            _ => None,
         }
     }
 }
@@ -123,30 +118,5 @@ unsafe fn convert_piece_map_to_bitboards(colour: &mut Pieces) -> piece_map_bitbo
 impl From<&mut Pieces> for piece_map_bitboards {
     fn from(value: &mut Pieces) -> Self {
         unsafe { convert_piece_map_to_bitboards(value) }
-    }
-}
-
-pub enum File {
-    A,
-    B,
-    C,
-    D,
-    E,
-    F,
-    G,
-    H,
-}
-impl File {
-    pub fn files() -> [File; 8] {
-        [
-            Self::A,
-            Self::B,
-            Self::C,
-            Self::D,
-            Self::E,
-            Self::F,
-            Self::G,
-            Self::H,
-        ]
     }
 }

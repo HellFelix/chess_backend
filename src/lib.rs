@@ -4,9 +4,6 @@
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-use env_logger;
-use std::time::SystemTime;
-
 mod utils;
 use utils::fen::*;
 

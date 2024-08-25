@@ -2,8 +2,6 @@
 
 use core::panic;
 
-use super::File::{self, *};
-
 // integer representations of squares to be used by lookup functions
 pub const a1: i32 = 0;
 pub const b1: i32 = 1;
@@ -69,22 +67,6 @@ pub const e8: i32 = 60;
 pub const f8: i32 = 61;
 pub const g8: i32 = 62;
 pub const h8: i32 = 63;
-
-pub fn square_id(file: &File, rank: i32) -> i32 {
-    let mut res = (rank - 1) * 8;
-    match file {
-        A => res += 0,
-        B => res += 1,
-        C => res += 2,
-        D => res += 3,
-        E => res += 4,
-        F => res += 5,
-        G => res += 6,
-        H => res += 7,
-    }
-
-    res
-}
 
 pub fn from_str(s: &str) -> i32 {
     let mut c = s.chars();
