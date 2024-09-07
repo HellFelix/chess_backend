@@ -4,6 +4,7 @@ use crate::{
     utils::{extract_squares, squares::*, Colour, Piece, Pieces},
     START_POSITION,
 };
+use core::panic;
 use std::fmt::Display;
 
 type TargetFunction = Box<dyn Fn(i32) -> u64>;
@@ -30,19 +31,34 @@ impl bitboard_base {
         starting_sqaure: u64,
         destination_square: u64,
         colour: Colour,
+        prom_piece: Option<Piece>,
     ) -> Self {
         let mut side = self.get_side(colour);
         let mut other = self.get_side(colour.other());
-        let side_bitboard = match piece {
-            Piece::Pawn(_c) => &mut side.pawns,
-            Piece::King(_c) => &mut side.king,
-            Piece::Queen(_c) => &mut side.queens,
-            Piece::Bishop(_c) => &mut side.bishops,
-            Piece::Knight(_c) => &mut side.knights,
-            Piece::Rook(_c) => &mut side.rooks,
-        };
+        if let Some(res_piece) = prom_piece {
+            let side_bitboard = match res_piece {
+                Piece::Queen(_c) => &mut side.queens,
+                Piece::Bishop(_c) => &mut side.bishops,
+                Piece::Knight(_c) => &mut side.knights,
+                Piece::Rook(_c) => &mut side.rooks,
+                // Pawn and King is not allowed as a promotion piece
+                _ => panic!("Invalid promotion Piece"),
+            };
+            side.pawns ^= starting_sqaure;
+            *side_bitboard ^= destination_square;
+        } else {
+            let side_bitboard = match piece {
+                Piece::Pawn(_c) => &mut side.pawns,
+                Piece::King(_c) => &mut side.king,
+                Piece::Queen(_c) => &mut side.queens,
+                Piece::Bishop(_c) => &mut side.bishops,
+                Piece::Knight(_c) => &mut side.knights,
+                Piece::Rook(_c) => &mut side.rooks,
+            };
 
-        *side_bitboard ^= starting_sqaure | destination_square;
+            *side_bitboard ^= starting_sqaure | destination_square;
+        }
+
         for other_bitboard in vec![
             &mut other.pawns,
             &mut other.king,
@@ -83,7 +99,7 @@ impl bitboard_base {
             for target in
                 extract_squares((target_function(square) ^ side_occupied) & !side_occupied)
             {
-                let res_board = self.make_move(piece, 1 << square, 1 << target, colour);
+                let res_board = self.make_move(piece, 1 << square, 1 << target, colour, None);
                 let f =
                     if piece == Piece::Pawn(Colour::White) && target - square == 16 {
                         Some(Box::new(move |b: &mut Board| b.killer_square = square + 8)
@@ -258,6 +274,65 @@ impl bitboard_base {
         }
     }
 
+    fn add_promotion_moves(
+        &self,
+        back_rank: u64,
+        colour: Colour,
+        pawns: u64,
+        occupancy: u64,
+        res: &mut Vec<(ChessMoveBase, Option<MutateFunction>)>,
+    ) {
+        for starting_sqaure in extract_squares(pawns) {
+            unsafe {
+                for target in
+                    extract_squares(pawnTargets(starting_sqaure, colour.as_int(), occupancy))
+                {
+                    if 1u64 << target & back_rank != 0 {
+                        for p in [
+                            Piece::Queen(colour),
+                            Piece::Rook(colour),
+                            Piece::Knight(colour),
+                            Piece::Bishop(colour),
+                        ] {
+                            res.push((
+                                ChessMoveBase {
+                                    starting_sqaure: Some(starting_sqaure),
+                                    destination_square: Some(target),
+                                    piece: Piece::Pawn(colour),
+                                    move_type: MoveType::Promotion(p),
+                                    colour,
+                                    res_board: self.make_move(
+                                        Piece::Pawn(colour),
+                                        1u64 << starting_sqaure,
+                                        1u64 << target,
+                                        colour,
+                                        Some(p),
+                                    ),
+                                },
+                                None,
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn get_promotion_moves(
+        &self,
+        colour: Colour,
+        pawns: u64,
+        occupancy: u64,
+    ) -> Vec<(ChessMoveBase, Option<MutateFunction>)> {
+        let mut res = Vec::new();
+        if colour == Colour::White && pawns & 71776119061217280 != 0 {
+            self.add_promotion_moves(18374686479671623680, colour, pawns, occupancy, &mut res);
+        } else if colour == Colour::Black && pawns & 65280 != 0 {
+            self.add_promotion_moves(255, colour, pawns, occupancy, &mut res);
+        }
+        res
+    }
+
     pub fn get_pseudo_legal_moves(
         &self,
         colour: Colour,
@@ -267,6 +342,7 @@ impl bitboard_base {
         let mut res = Vec::new();
 
         // --- Pawn Moves ---
+        res.append(&mut self.get_promotion_moves(colour, self.get_side(colour).pawns, occupancy));
         res.append(&mut self.get_pseudo_legal_piece_moves(
             colour,
             Piece::Pawn(colour),
@@ -360,6 +436,7 @@ enum MoveType {
     Standard,
     Castling(Side),
     EnPassent,
+    Promotion(Piece),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -386,10 +463,18 @@ impl ChessMoveBase {
                 self.colour.other().as_int(),
                 self.res_board.white_occupied + self.res_board.black_occupied,
             );
+            // king should not be in check after the move has been made
             if side.king & other_attacks != 0 {
                 return false;
             }
+            // pawns should not be on any back rank
+            if side.pawns + other_side.pawns & 18374686479671623935 != 0 {
+                return false;
+            }
             if let MoveType::Castling(castling_side) = self.move_type {
+                // When castling, the coresponding castling right must be true, there must be no
+                // pieces between the king and rook, the rooks must not have been captured, and the
+                // squares over which the king passes must not be attacked by enemy pieces
                 if !((castling_side == Side::King
                     && self.colour == Colour::White
                     && castling_rights.white_king
@@ -423,7 +508,7 @@ impl ChessMoveBase {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ChessMove {
     base: ChessMoveBase,
     pub board: Board,

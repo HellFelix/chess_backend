@@ -8,6 +8,16 @@ mod utils;
 use utils::fen::*;
 
 mod board;
-pub use board::Board;
+pub use board::{Board, ChessMove};
+pub use utils::fen::{
+    CASTLE_KINGSIDE_POSITION, CASTLE_QUEENSIDE_POSITION, CHECK_POSITION, CMK_POSITION,
+    KILLER_POSITION, PROMOTION_POSITION, START_POSITION, TRICKY_POSITION,
+};
 
 mod tests;
+
+pub fn init() {
+    unsafe {
+        init_targets();
+    }
+}
