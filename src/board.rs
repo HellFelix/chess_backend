@@ -10,6 +10,48 @@ use std::fmt::Display;
 type TargetFunction = Box<dyn Fn(i32) -> u64>;
 type MutateFunction = Box<dyn Fn(&mut Board)>;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Side {
+    King,
+    Queen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum MoveType {
+    Standard,
+    Castling(Side),
+    EnPassent,
+    Promotion(Piece),
+}
+
+#[derive(Debug, Clone)]
+pub enum GameState {
+    // in order to avoid generating moves multiple times, the moves are inherited
+    // with the "Ongoing" state.
+    Ongoing(Vec<ChessMove>),
+    Finished(FinishedState),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FinishedState {
+    Win(Colour, ReasonWin),
+    Draw(ReasonDraw),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ReasonWin {
+    Checkmate,
+    Resignation,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ReasonDraw {
+    Stalemate,
+    InsufficientMaterial,
+    HalfmoveLimit,
+    Agreement,
+}
+
 impl bitboard_base {
     pub fn get_side(&self, colour: Colour) -> piece_map_bitboards {
         match colour {
@@ -425,20 +467,6 @@ impl bitboard_base {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Side {
-    King,
-    Queen,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum MoveType {
-    Standard,
-    Castling(Side),
-    EnPassent,
-    Promotion(Piece),
-}
-
 #[derive(Debug, Clone, Copy)]
 struct ChessMoveBase {
     starting_sqaure: Option<i32>,
@@ -613,6 +641,61 @@ impl Board {
             }
         }
         res
+    }
+
+    pub fn get_game_state(&self) -> GameState {
+        // Even though most positions should return Ongoing, there are some states that
+        // should be checked before generating moves since they could yield a finished state
+        // regardless of if there are "legal" moves.
+
+        // --- Insufficient Material ---
+        // Easiest way to skip further calculations is to check if there are pawns
+        // on either side. This should skip further calculations in most positions.
+        if self.base.white.pawns + self.base.black.pawns == 0 {
+            unimplemented!("Chance of insufficient material")
+        }
+
+        // --- Halfmove limit (yet to be implemented) ---
+
+        // --- Resignation & Agreement (yet to be implemented) ---
+
+        // From here on out, we require legal moves of this position
+        let moves = self.generate_legal_moves();
+        if moves.len() != 0 {
+            // --- Ongoing ---
+            // Easiest way to check if the game is still ongoing is to check if there
+            // are any legal moves in the current position.
+            // If we have gotten this far in the game state checking and there are
+            // legal moves, the game is still ongoing.
+            GameState::Ongoing(moves)
+        } else {
+            // The game is over. Now it's a matter of figuring out why
+            // The game has ended in either checkmate or stalemate
+            let side = self.base.get_side(self.side_to_move);
+            let other_side = self.base.get_side(self.side_to_move.other());
+
+            unsafe {
+                let other_attacks = generateAttackTargets(
+                    other_side,
+                    self.side_to_move.other().as_int(),
+                    self.base.white_occupied + self.base.black_occupied,
+                );
+                GameState::Finished(
+                    // is the king in check?
+                    if side.king & other_attacks == 0 {
+                        // --- Stalemate ---
+                        // If there are no legal moves and the king is not in check, the game ends in
+                        // stalemate
+                        FinishedState::Draw(ReasonDraw::Stalemate)
+                    } else {
+                        // --- Checkmate ---
+                        // If there are no legal moves and the king is in check, the game ends in
+                        // checkmate
+                        FinishedState::Win(self.side_to_move.other(), ReasonWin::Checkmate)
+                    },
+                )
+            }
+        }
     }
 }
 impl Default for Board {
